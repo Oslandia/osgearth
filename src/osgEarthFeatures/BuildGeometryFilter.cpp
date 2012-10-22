@@ -137,6 +137,42 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
                     {
                         _hasPolygons = true;
                         color = poly->fill()->color();
+
+                        // if we have a line symbol and a polygon symbol, draw both an outline and a polygon
+                        const LineSymbol* line = myStyle.getSymbol<LineSymbol>();
+			/*                        if ( line ) */
+                        {
+			  osg::Vec4f strokeColor = osg::Vec4(0,0,0,1);
+			  //			  strokeColor = line->stroke()->color();
+			  //			  width = line->stroke()->width().isSet() ? *line->stroke()->width() : 1.0f;
+			  width = 1.0f;
+
+			  osg::Geometry* osgGeom = new osg::Geometry();
+			  osgGeom->getOrCreateStateSet()->setAttributeAndModes(
+					new osg::LineWidth( width ), osg::StateAttribute::ON );
+
+			  // add an outline
+			  if ( makeECEF )
+			  {
+			    osg::Vec3Array* newPart = new osg::Vec3Array();
+			    ECEF::transformAndLocalize( part->asVector(), newPart, srs, _world2local );
+			    osgGeom->setVertexArray( newPart );
+			  }
+			  else
+			  {
+			    osgGeom->setVertexArray( part->toVec3Array() );
+			  }
+			  osgGeom->addPrimitiveSet( new osg::DrawArrays( osg::PrimitiveSet::LINE_STRIP, 0, part->size() ) );
+
+			  // NOTE! per-vertex colors makes the optimizer destroy the geometry....
+			  osg::Vec4Array* colors = new osg::Vec4Array(1);
+			  (*colors)[0] = strokeColor;
+			  osgGeom->setColorArray( colors );
+			  osgGeom->setColorBinding( osg::Geometry::BIND_OVERALL );
+			  
+			  // add the part to the geode.
+			  _geode->addDrawable( osgGeom );
+                        }
                     }
                     else
                     {
