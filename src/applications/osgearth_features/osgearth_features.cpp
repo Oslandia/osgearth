@@ -73,7 +73,7 @@ int main(int argc, char** argv)
     }
     else
     {
-        Ring* line = new Ring();
+        Polygon* line = new Polygon();
         line->push_back( osg::Vec3d(-60, 20, 0) );
         line->push_back( osg::Vec3d(-120, 20, 0) );
         line->push_back( osg::Vec3d(-120, 60, 0) );
@@ -88,6 +88,9 @@ int main(int argc, char** argv)
     LineSymbol* ls = style.getOrCreateSymbol<LineSymbol>();
     ls->stroke()->color() = osg::Vec4f( 1,1,0,1 ); // yellow
     ls->stroke()->width() = 2.0f;
+
+    PolygonSymbol* poly = style.getOrCreateSymbol<PolygonSymbol>();
+    poly->fill()->color() = osg::Vec4f( 1,1,0,0.5 );
 
     // Add some text labels.
     if ( useLabels )
@@ -115,7 +118,7 @@ int main(int argc, char** argv)
     {
         FeatureStencilModelOptions worldOpt;
         worldOpt.featureOptions() = featureOpt;
-        worldOpt.geometryTypeOverride() = Geometry::TYPE_LINESTRING;
+	//        worldOpt.geometryTypeOverride() = Geometry::TYPE_LINESTRING;
         worldOpt.styles() = new StyleSheet();
         worldOpt.styles()->addStyle( style );
         worldOpt.enableLighting() = false;
@@ -126,7 +129,7 @@ int main(int argc, char** argv)
     {
         AGGLiteOptions worldOpt;
         worldOpt.featureOptions() = featureOpt;
-        worldOpt.geometryTypeOverride() = Geometry::TYPE_LINESTRING;
+	//        worldOpt.geometryTypeOverride() = Geometry::TYPE_LINESTRING;
         worldOpt.styles() = new StyleSheet();
         worldOpt.styles()->addStyle( style );
         map->addImageLayer( new ImageLayer( ImageLayerOptions("world", worldOpt) ) );
@@ -135,10 +138,10 @@ int main(int argc, char** argv)
     {
         FeatureGeomModelOptions worldOpt;
         worldOpt.featureOptions() = featureOpt;
-        worldOpt.geometryTypeOverride() = Geometry::TYPE_LINESTRING;
+	//        worldOpt.geometryTypeOverride() = Geometry::TYPE_LINESTRING;
         worldOpt.styles() = new StyleSheet();
         worldOpt.styles()->addStyle( style );
-        worldOpt.enableLighting() = false;
+        worldOpt.enableLighting() = true;
         worldOpt.depthTestEnabled() = false;
 
         ModelLayerOptions options( "my features", worldOpt );
