@@ -36,6 +36,7 @@
 #include <osgText/Text>
 #include <osgUtil/Tessellator>
 #include <osgUtil/Optimizer>
+#include <osgUtil/SmoothingVisitor>
 #include <osgDB/WriteFile>
 #include <osg/Version>
 
@@ -131,13 +132,22 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
 
             case Geometry::TYPE_POLYGON:
                 {
-                    primMode = osg::PrimitiveSet::LINE_LOOP; // loop will tessellate into polys
+		  //                    primMode = osg::PrimitiveSet::LINE_LOOP; // loop will tessellate into polys
+		  if ( part->size() == 3 )
+		  {
+		    primMode = osg::PrimitiveSet::TRIANGLES;
+		  }
+		  else
+		  {
+                    primMode = osg::PrimitiveSet::POLYGON;
+		  }
                     const PolygonSymbol* poly = myStyle.getSymbol<PolygonSymbol>();
                     if (poly)
                     {
                         _hasPolygons = true;
                         color = poly->fill()->color();
 
+#if 0
                         // if we have a line symbol and a polygon symbol, draw both an outline and a polygon
                         const LineSymbol* line = myStyle.getSymbol<LineSymbol>();
 			/*                        if ( line ) */
@@ -173,6 +183,7 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
 			  // add the part to the geode.
 			  _geode->addDrawable( osgGeom );
                         }
+#endif
                     }
                     else
                     {
@@ -262,6 +273,22 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
                     osg::Vec3Array* newPart = new osg::Vec3Array();
                     ECEF::transformAndLocalize( part->asVector(), newPart, srs, _world2local );
                     osgGeom->setVertexArray( newPart );
+
+		    // compute the normal vector
+		    osg::Vec3 pta( (*newPart)[0] );
+		    osg::Vec3 ptb( (*newPart)[1] );
+		    osg::Vec3 ptc( (*newPart)[2] );
+		    osg::Vec3 normal = ( ptc - ptb ) ^ ( pta - ptb );
+		    normal.normalize();
+
+		    osg::Vec3Array* normals = new osg::Vec3Array();
+		    for ( size_t i = 0; i < newPart->size(); ++i )
+		    {
+		      normals->push_back( normal );
+		    }
+		    osgGeom->setNormalArray( normals );
+		    osgGeom->setNormalIndices( osgGeom->getVertexIndices() );
+		    osgGeom->setNormalBinding( osg::Geometry::BIND_PER_VERTEX );
                 }
                 else
                 {
@@ -274,6 +301,7 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
             // with TESS_TYPE_GEOMETRY is much faster than doing the whole bunch together
             // using TESS_TYPE_DRAWABLE.
 
+#if 0
             if ( part->getType() == Geometry::TYPE_POLYGON && tessellatePolys )
             {
                 osgUtil::Tessellator tess;
@@ -305,6 +333,7 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
                 else
                     ms.run( *osgGeom, threshold, *_geoInterp );
             }
+#endif
 
             // NOTE! per-vertex colors makes the optimizer destroy the geometry....
             osg::Vec4Array* colors = new osg::Vec4Array(1);

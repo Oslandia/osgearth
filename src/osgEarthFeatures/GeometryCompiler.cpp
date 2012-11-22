@@ -290,6 +290,7 @@ GeometryCompiler::compile(FeatureList&          workingSet,
     // simple geometry
     else if ( point || line || polygon )
     {
+      std::cout << "simple geometry" << std::endl;
         if ( altRequired )
         {
             AltitudeFilter clamp;
