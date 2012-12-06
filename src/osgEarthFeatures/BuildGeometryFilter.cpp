@@ -39,6 +39,7 @@
 #include <osgUtil/SmoothingVisitor>
 #include <osgDB/WriteFile>
 #include <osg/Version>
+#include <osg/CullFace>
 
 #define LC "[BuildGeometryFilter] "
 
@@ -274,17 +275,22 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
                     ECEF::transformAndLocalize( part->asVector(), newPart, srs, _world2local );
                     osgGeom->setVertexArray( newPart );
 
-		    // compute the normal vector
-		    osg::Vec3 pta( (*newPart)[0] );
-		    osg::Vec3 ptb( (*newPart)[1] );
-		    osg::Vec3 ptc( (*newPart)[2] );
-		    osg::Vec3 normal = ( ptc - ptb ) ^ ( pta - ptb );
+		    osg::Vec3 normal( 0.0, 0.0, 0.0 );
+		    // Newell's formula
+		    for ( size_t i = 0; i < newPart->size(); ++i )
+		    {
+			    osg::Vec3 pi = (*newPart)[i];
+			    osg::Vec3 pj = (*newPart)[ (i+1) % newPart->size() ];
+			    normal[0] += ( pi[1] - pj[1] ) * ( pi[2] + pj[2] );
+			    normal[1] += ( pi[2] - pj[2] ) * ( pi[0] + pj[0] );
+			    normal[2] += ( pi[0] - pj[0] ) * ( pi[1] + pj[1] );
+		    }
 		    normal.normalize();
 
 		    osg::Vec3Array* normals = new osg::Vec3Array();
 		    for ( size_t i = 0; i < newPart->size(); ++i )
 		    {
-		      normals->push_back( normal );
+			    normals->push_back( normal );
 		    }
 		    osgGeom->setNormalArray( normals );
 		    osgGeom->setNormalIndices( osgGeom->getVertexIndices() );
