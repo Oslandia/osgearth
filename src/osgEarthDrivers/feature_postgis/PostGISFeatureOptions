@@ -1,0 +1,118 @@
+/* -*-c++-*- */
+/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
+ * Copyright 2008-2013 Pelican Mapping
+ * http://osgearth.org
+ *
+ * osgEarth is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ */
+#ifndef OSGEARTH_DRIVER_POSTGIS_FEATURE_SOURCE_OPTIONS
+#define OSGEARTH_DRIVER_POSTGIS_FEATURE_SOURCE_OPTIONS 1
+
+#include <osgEarth/Common>
+#include <osgEarthFeatures/FeatureSource>
+
+namespace osgEarth { namespace Drivers
+{
+    using namespace osgEarth;
+    using namespace osgEarth::Features;
+
+    class PostGISFeatureOptions : public FeatureSourceOptions // NO EXPORT; header only
+    {
+    public:
+        optional<std::string>& host() { return _host; }
+        const optional<std::string>& host() const { return _host; }
+
+        optional<std::string>& port() { return _port; }
+        const optional<std::string>& port() const { return _port; }
+
+        optional<std::string>& dbname() { return _dbname; }
+        const optional<std::string>& dbname() const { return _dbname; }
+
+        optional<std::string>& table() { return _table; }
+        const optional<std::string>& table() const { return _table; }
+
+        optional<std::string>& geometryColumn() { return _geometryColumn; }
+        const optional<std::string>& geometryColumn() const { return _geometryColumn; }
+
+        optional<std::string>& query() { return _query; }
+        const optional<std::string>& query() const { return _query; }
+
+        optional<std::string>& user() { return _user; }
+        const optional<std::string>& user() const { return _user; }
+
+        optional<std::string>& password() { return _password; }
+        const optional<std::string>& password() const { return _password; }
+
+        optional<bool>& buildSpatialIndex() { return _buildSpatialIndex; }
+        const optional<bool>& buildSpatialIndex() const { return _buildSpatialIndex; }
+
+
+    public:
+        PostGISFeatureOptions( const ConfigOptions& opt =ConfigOptions() ) : FeatureSourceOptions( opt ) {
+            setDriver( "postgis" );
+            fromConfig( _conf );
+        }
+
+        virtual ~PostGISFeatureOptions() { }
+
+    public:
+        Config getConfig() const {
+            Config conf = FeatureSourceOptions::getConfig();
+            conf.updateIfSet( "host", _host );
+            conf.updateIfSet( "port", _port );
+            conf.updateIfSet( "dbname", _dbname );
+            conf.updateIfSet( "table", _table );
+            conf.updateIfSet( "geometry_column", _geometryColumn );
+            conf.updateIfSet( "query", _query );
+            conf.updateIfSet( "user", _user );
+            conf.updateIfSet( "password", _password );
+            conf.updateIfSet( "build_spatial_index", _buildSpatialIndex );
+            return conf;
+        }
+
+    protected:
+        void mergeConfig( const Config& conf ) {
+            FeatureSourceOptions::mergeConfig( conf );
+            fromConfig( conf );
+        }
+
+    private:
+        void fromConfig( const Config& conf ) {
+            conf.getIfSet( "host", _host );
+            conf.getIfSet( "port", _port );
+            conf.getIfSet( "dbname", _dbname );
+            conf.getIfSet( "table", _table );
+            conf.getIfSet( "geometry_column", _geometryColumn );
+            conf.getIfSet( "query", _query );
+            conf.getIfSet( "user", _user );
+            conf.getIfSet( "password", _password );
+            conf.getIfSet( "build_spatial_index", _buildSpatialIndex );
+        }
+
+
+        optional<std::string> _host;
+        optional<std::string> _port;
+        optional<std::string> _dbname;
+        optional<std::string> _table;
+        optional<std::string> _geometryColumn;
+        optional<std::string> _query;
+        optional<std::string> _user;
+        optional<std::string> _password;
+        optional<bool>        _buildSpatialIndex;
+    };
+
+} } // namespace osgEarth::Drivers
+
+#endif // OSGEARTH_DRIVER_POSTGIS_FEATURE_SOURCE_OPTIONS
+
