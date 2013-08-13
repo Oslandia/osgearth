@@ -6,6 +6,7 @@ SET(TARGET_SRC
 SET(TARGET_H
     FeatureCursorPostGIS    
     PostGISFeatureOptions
+    PostGisUtils
 )
 
 INCLUDE_DIRECTORIES( ${PostgreSQL_INCLUDE_DIR} ${LWGEOM_INCLUDE_DIR} )

@@ -1,0 +1,100 @@
+/* -*-c++-*- */
+/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
+* Copyright 2008-2013 Pelican Mapping
+* http://osgearth.org
+*
+* osgEarth is free software; you can redistribute it and/or modify
+* it under the terms of the GNU Lesser General Public License as published by
+* the Free Software Foundation; either version 2 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU Lesser General Public License for more details.
+*
+* You should have received a copy of the GNU Lesser General Public License
+* along with this program.  If not, see <http://www.gnu.org/licenses/>
+*/
+#ifndef OSGEARTH_DRIVER_POSTGIS_FEATURE_UTILS
+#define OSGEARTH_DRIVER_POSTGIS_FEATURE_UTILS 1
+
+#include <osgEarthFeatures/Common>
+#include <osgEarthFeatures/Feature>
+#include <osgEarthSymbology/Geometry>
+#include <osgEarth/StringUtils>
+#include <osg/Notify>
+#include <libpq-fe.h>
+#include <liblwgeom.h>
+
+using namespace osgEarth;
+using namespace osgEarth::Features;
+using namespace osgEarth::Symbology;
+
+struct OSGEARTHFEATURES_EXPORT PostGisUtils
+{
+    // utility class mainly for RAII of PGresult
+    struct QueryResult
+    {
+        QueryResult( PGconn * conn, const std::string & query )
+            : _res( PQexec( conn, query.c_str() ) )
+            , _error( PQresultErrorMessage(_res) )
+        {
+            //nop
+        }
+
+        ~QueryResult() 
+        { 
+            PQclear(_res);
+        }
+
+        operator bool() const { return _error.empty(); }
+
+        PGresult * get(){ return _res; }
+
+        const std::string & error() const { return _error; }
+
+    private:
+        PGresult * _res;
+        const std::string _error;
+        // non copyable
+        QueryResult( const QueryResult & );
+        QueryResult operator=( const QueryResult &); 
+    };
+
+    //utility class for RAII of LWGEOM
+    struct Lwgeom
+    {
+        struct WKT {};
+        struct WKB {};
+        Lwgeom( const char * wkt, WKT )
+            : _geom( lwgeom_from_wkt(wkt, LW_PARSER_CHECK_NONE) )
+        {}
+        Lwgeom( const char * wkb, WKB )
+            : _geom( lwgeom_from_hexwkb(wkb, LW_PARSER_CHECK_NONE) )
+        {}
+        LWGEOM * get(){ return _geom; }
+        LWGEOM * operator->(){ return _geom; }
+        ~Lwgeom()
+        {
+            lwgeom_free(_geom);
+        }
+    private:
+        LWGEOM * _geom;
+
+    };
+
+    //static void populate( LWGEOM * geom, Symbology::Geometry* target, int numPoints );
+    //
+    //static Symbology::Polygon* createPolygon( LWGEOM * geom );
+    //   
+    //static Symbology::Geometry* createGeometry( LWGEOM * geom );
+
+    //static Feature* createFeature( LWGEOM * geom, const SpatialReference* srs );
+    //
+    //static AttributeType getAttributeType( OGRFieldType type );    
+};
+
+
+#endif // OSGEARTH_DRIVER_POSTGIS_FEATURE_UTILS
+

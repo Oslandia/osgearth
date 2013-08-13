@@ -26,11 +26,13 @@
 #include <osgEarthFeatures/GeometryUtils>
 #include "PostGISFeatureOptions"
 #include "FeatureCursorPostGIS"
+#include "PostGisUtils"
 #include <osg/Notify>
 #include <osgDB/FileNameUtils>
 #include <osgDB/FileUtils>
 #include <list>
-#include <libpq-fe.h>
+#include <memory>
+#include <cassert>
 
 #define LC "[PostGIS FeatureSource] "
 
@@ -47,53 +49,8 @@ using namespace osgEarth::Drivers;
 class PostGISFeatureSource : public FeatureSource
 {
 public:
-    // utility class mainly for RAII of PGresult
-    struct QueryResult
-    {
-        PostGISQuery( PGconn * conn, const std::string & query )
-            : _res( PQexec( conn, query.c_str() ) )
-            , _error( PQresultErrorMessage(_res) )
-        {
-            //nop
-        }
-
-        ~PostGISQuery() 
-        { 
-            PQclear(_res);
-        }
-
-        operator bool() const { return _error.empty(); }
-
-        PGresult * get(){ return _res; }
-
-        const std::string & erro() const { return _error; }
-
-    private:
-        PGresult _res;
-        const std::string _error;
-    };
-
-    //utility class for RAII of LWGEOM
-    struct Lwgeom
-    {
-        Lwgeom( const char * wkt )
-            : _geom( lwgeom_from_wkt(wkt, LW_PARSER_CHECK_NONE) )
-        {}
-        LWGEOM * get(){ return _geom; }
-        ~Lwgeom()
-        {
-            lwgeom_free(_geom);
-        }
-    private:
-        LWGEOM * _geom;
-
-    }
-
     PostGISFeatureSource( const PostGISFeatureOptions& options ) : FeatureSource( options ),
       _conn( 0L ),
-      _layerHandle( 0L ),
-      _layerIndex( 0 ),
-      _ogrDriverHandle( 0L ),
       _options( options ),
       _featureCount(-1),
       _needsSync(false),
@@ -135,11 +92,11 @@ public:
         int openMode = _options.openWrite().isSet() && _options.openWrite().value() ? 1 : 0;
 
 
-        const std::string conninfo = (_options.host().empty() ? "" : " host='"+_options.host()+"'")
-                                   + (_options.port().empty() ? "" : " port='"+_options.port()+"'")
-                                   + " dbname='"+_options.dbname()+"'"
-                                   + (_options.user().empty() ? "" : " user='"+_options.user()+"'")
-                                   + (_options.password().empty() ? "" : " password='"+_options.password()+"'")
+        const std::string conninfo = (_options.host().isSet() ? "" : " host='"+_options.host().value()+"'")
+                                   + (_options.port().isSet() ? "" : " port='"+_options.port().value()+"'")
+                                   + " dbname='"+_options.dbname().value()+"'"
+                                   + (_options.user().isSet() ? "" : " user='"+_options.user().value()+"'")
+                                   + (_options.password().isSet() ? "" : " password='"+_options.password().value()+"'")
                                    ;
         _conn = PQconnectdb(conninfo.c_str());
 
@@ -148,23 +105,16 @@ public:
             // build a spatial index if requested.
             if ( _options.buildSpatialIndex() == true )
             {
-                OE_INFO << LC << "Building spatial index for " << _options.table() << std::endl;
-                const std::string query( "CREATE INDEX osgearth_index ON "+_options.table()
-                        +" USING GIST ("._options.geometryColumn()+"); VACUUM ANALYZE" );
+                OE_INFO << LC << "Building spatial index for " << _options.table().value() << std::endl;
+                const std::string query( "CREATE INDEX osgearth_index ON "+_options.table().value()
+                        +" USING GIST ("+_options.geometryColumn().value()+"); VACUUM ANALYZE" );
                 OE_DEBUG << LC << "SQL: " << query << std::endl;
-                QueryResult res( _conn, query );
+                PostGisUtils::QueryResult res( _conn, query );
                 if (!res)
                 {
                     OE_INFO << LC << "failed to create spatial index: " << res.error() << std::endl;
                 }
             }
-
-int PQntuples(const PGresult *res);
-int PQnfields(const PGresult *res);
-char *PQfname(const PGresult *res, int column_number);
-char *PQgetvalue(const PGresult *res, int row_number, int column_number);
-
-
 
             GeoExtent extent;
 
@@ -176,11 +126,11 @@ char *PQgetvalue(const PGresult *res, int row_number, int column_number);
             else
             {
                 // extract the SRS and Extent:                
-                QueryResult res( _conn,
-                    "WITH a AS (SELECT ST_SRID("+_options.geometryColumn()
-                    +") AS srid FROM "+_options.table()+" LIMIT 1)"
-                    +" SELECT auth_name,auth_srid FROM spatial_ref_sys  s, a WHERE s.srid=a.srid")
-                if (sridRes)
+                PostGisUtils::QueryResult res( _conn,
+                    "WITH a AS (SELECT ST_SRID("+_options.geometryColumn().value()
+                    +") AS srid FROM "+_options.table().value()+" LIMIT 1)"
+                    +" SELECT auth_name,auth_srid FROM spatial_ref_sys  s, a WHERE s.srid=a.srid");
+                if (res)
                 {
                     assert( 1 == PQntuples( res.get() ) );
                     const std::string authName( PQgetvalue( res.get() , 0, 0) ); 
@@ -192,12 +142,12 @@ char *PQgetvalue(const PGresult *res, int row_number, int column_number);
                     if ( srs.valid() )
                     {
                         // extract the full extent of the layer:
-                        QueryResult res2( _conn, "SELECT ST_Extent(" + _options.geometryColumn() + ") AS table_extent FROM " + _options.table() );
+                        PostGisUtils::QueryResult res2( _conn, "SELECT ST_Extent(" + _options.geometryColumn().value() + ") AS table_extent FROM " + _options.table().value() );
                         if (res2)
                         {
                             assert( 1 == PQntuples( res2.get() ) );
-                            Lwgeom geom( PQgetvalue( res2.get() , 0, 0) );
-                            const GBOX * box = lwgeom_get_bbox(geom);
+                            PostGisUtils::Lwgeom geom( PQgetvalue( res2.get() , 0, 0), PostGisUtils::Lwgeom::WKT() );
+                            const GBOX * box = lwgeom_get_bbox(geom.get());
                             GeoExtent extent( srs.get(), box->xmin, box->ymin, box->xmax, box->ymax );
                             
                             // got enough info to make the profile!
@@ -217,75 +167,41 @@ char *PQgetvalue(const PGresult *res, int row_number, int column_number);
 
 
             //Get the feature count
-            QueryResult res( _conn, "SELECT count(*) FROM " + _options.table() );
-            if (res)
             {
-                _featureCount = atoi( PQgetvalue( res2.get() , 0, 0) );
-            }
-            else
-            {
-                OE_INFO << LC << "failed to get feature count: " << res.error() << std::endl;
-            }
-
-            // init Schema
-            {
-                OGRFeatureDefnH layerDef =  OGR_L_GetLayerDefn( _layerHandle );
-                for (int i = 0; i < OGR_FD_GetFieldCount( layerDef ); i++)
+                PostGisUtils::QueryResult res( _conn, "SELECT count(*) FROM " + _options.table().value() );
+                if (res)
                 {
-Oid PQftype(const PGresult *res, int column_number);
-
-                    OGRFieldDefnH fieldDef = OGR_FD_GetFieldDefn( layerDef, i );
-                    std::string name;
-                    name = std::string( OGR_Fld_GetNameRef( fieldDef ) );
-                    OGRFieldType ogrType = OGR_Fld_GetType( fieldDef );
-                    {
-                        switch (type)
-                        {
-                        case OFTString: _schema[ name ] =  ATTRTYPE_STRING;
-                        case OFTReal: _schema[ name ] = ATTRTYPE_DOUBLE;
-                        case OFTInteger: _schema[ name ] = ATTRTYPE_INT;
-                        default: _schema[ name ] = ATTRTYPE_UNSPECIFIED;
-                        }        
-                    }
+                    _featureCount = atoi( PQgetvalue( res.get() , 0, 0) );
+                }
+                else
+                {
+                    OE_INFO << LC << "failed to get feature count: " << res.error() << std::endl;
                 }
             }
 
-            OGRwkbGeometryType wkbType = OGR_FD_GetGeomType( OGR_L_GetLayerDefn( _layerHandle ) );
-            if (
-                wkbType == wkbPolygon ||
-                wkbType == wkbPolygon25D )
+
+            // init Schema
             {
-                _geometryType = Geometry::TYPE_POLYGON;
+                PostGisUtils::QueryResult res( _conn, "SELECT column_name, data_type FROM information_schema.columns WHERE table_name='" + _options.table().value() + "'") ;
+                const int numCol = PQntuples( res.get() );
+                for (int i = 0; i < numCol; i++)
+                {
+                    const std::string name( PQgetvalue( res.get(), i, 0 ) );
+                    const std::string type( PQgetvalue( res.get(), i, 1 ) );
+                    if      ( "text" == type ) _schema[ name ] =  ATTRTYPE_STRING;
+                    else if ( "double precision" == type) _schema[ name ] =  ATTRTYPE_DOUBLE;
+                    else if ( "integer" == type) _schema[ name ] =  ATTRTYPE_INT;
+                    else                  _schema[ name ] =  ATTRTYPE_UNSPECIFIED;
+                }
             }
-            else if (
-                wkbType == wkbLineString ||
-                wkbType == wkbLineString25D )
-            {
-                _geometryType = Geometry::TYPE_LINESTRING;
-            }
-            else if (
-                wkbType == wkbLinearRing )
-            {
-                _geometryType = Geometry::TYPE_RING;
-            }
-            else if ( 
-                wkbType == wkbPoint ||
-                wkbType == wkbPoint25D )
-            {
-                _geometryType = Geometry::TYPE_POINTSET;
-            }
-            else if (
-                wkbType == wkbGeometryCollection ||
-                wkbType == wkbGeometryCollection25D ||
-                wkbType == wkbMultiPoint ||
-                wkbType == wkbMultiPoint25D ||
-                wkbType == wkbMultiLineString ||
-                wkbType == wkbMultiLineString25D ||
-                wkbType == wkbMultiPolygon ||
-                wkbType == wkbMultiPolygon25D )
-            {
-                _geometryType = Geometry::TYPE_MULTI;
-            }
+
+
+            //!@todo find the actual geomtry type 
+            _geometryType = Geometry::TYPE_POLYGON;
+            //_geometryType = Geometry::TYPE_LINESTRING;
+            //_geometryType = Geometry::TYPE_RING;
+            //_geometryType = Geometry::TYPE_POINTSET;
+            //_geometryType = Geometry::TYPE_MULTI;
         }
         else
         {
@@ -301,51 +217,27 @@ Oid PQftype(const PGresult *res, int column_number);
     //override
     FeatureCursor* createFeatureCursor( const Symbology::Query& query )
     {
-        if ( _geometry.valid() )
+        if ( _conn )
         {
-            return new GeometryFeatureCursor(
-                _geometry.get(),
+            return new FeatureCursorPostGIS( 
+                _conn,
+                _options.table().value(),
+                _options.geometryColumn().value(),
+                _options.featureIdColumn().value(),
+                this,
                 getFeatureProfile(),
+                query, 
                 _options.filters() );
-                //getFilters() );
         }
         else
         {
-            OGR_SCOPED_LOCK;
-
-            // Each cursor requires its own DS handle so that multi-threaded access will work.
-            // The cursor impl will dispose of the new DS handle.
-
-            OGRDataSourceH dsHandle = OGROpenShared( _source.c_str(), 0, &_ogrDriverHandle );
-            if ( dsHandle )
-            {
-                OGRLayerH layerHandle = OGR_DS_GetLayer( dsHandle, _layerIndex );
-
-                return new FeatureCursorOGR( 
-                    dsHandle,
-                    layerHandle, 
-                    this,
-                    getFeatureProfile(),
-                    query, 
-                    _options.filters() );
-            }
-            else
-            {
-                return 0L;
-            }
+            return 0L;
         }
     }
 
     virtual bool deleteFeature(FeatureID fid)
     {
-        if (_writable && _layerHandle)
-        {
-            if (OGR_L_DeleteFeature( _layerHandle, fid ) == OGRERR_NONE)
-            {
-                _needsSync = true;
-                return true;
-            }            
-        }
+        if ( isWritable() ) OE_INFO << LC << "not implemented" << std::endl;
         return false;
     }
 
@@ -360,15 +252,15 @@ Oid PQftype(const PGresult *res, int column_number);
 
         if ( !isBlacklisted(fid) )
         {
-            OGR_SCOPED_LOCK;
-            OGRFeatureH handle = OGR_L_GetFeature( _layerHandle, fid);
-            if (handle)
-            {
-                const FeatureProfile* p = getFeatureProfile();
-                const SpatialReference* srs = p ? p->getSRS() : 0L;
-                result = OgrUtils::createFeature( handle, srs );
-                OGR_F_Destroy( handle );
-            }
+            OE_INFO << LC << "not implemented" << std::endl;
+            assert(false && bool("not implemented"));
+            //if (handle)
+            //{
+            //    const FeatureProfile* p = getFeatureProfile();
+            //    const SpatialReference* srs = p ? p->getSRS() : 0L;
+            //    result = OgrUtils::createFeature( handle, srs );
+            //    OGR_F_Destroy( handle );
+            //}
         }
         return result;
     }
@@ -385,71 +277,8 @@ Oid PQftype(const PGresult *res, int column_number);
 
     virtual bool insertFeature(Feature* feature)
     {
-        OGR_SCOPED_LOCK;
-        OGRFeatureH feature_handle = OGR_F_Create( OGR_L_GetLayerDefn( _layerHandle ) );
-        if ( feature_handle )
-        {
-            const AttributeTable& attrs = feature->getAttrs();
-
-            // assign the attributes:
-            int num_fields = OGR_F_GetFieldCount( feature_handle );
-            for( int i=0; i<num_fields; i++ )
-            {
-                OGRFieldDefnH field_handle_ref = OGR_F_GetFieldDefnRef( feature_handle, i );
-                std::string name = OGR_Fld_GetNameRef( field_handle_ref );
-                int field_index = OGR_F_GetFieldIndex( feature_handle, name.c_str() );
-
-                AttributeTable::const_iterator a = attrs.find( toLower(name) );
-                if ( a != attrs.end() )
-                {
-                    switch( OGR_Fld_GetType(field_handle_ref) )
-                    {
-                    case OFTInteger:
-                        OGR_F_SetFieldInteger( feature_handle, field_index, a->second.getInt(0) );
-                        break;
-                    case OFTReal:
-                        OGR_F_SetFieldDouble( feature_handle, field_index, a->second.getDouble(0.0) );
-                        break;
-                    case OFTString:
-                        OGR_F_SetFieldString( feature_handle, field_index, a->second.getString().c_str() );
-                        break;
-                    default:break;
-                    }
-                }
-            }
-
-            // assign the geometry:
-            OGRFeatureDefnH def = ::OGR_L_GetLayerDefn( _layerHandle );
-
-            OGRwkbGeometryType reported_type = OGR_FD_GetGeomType( def );
-
-            OGRGeometryH ogr_geometry = OgrUtils::createOgrGeometry( feature->getGeometry(), reported_type );
-            if ( OGR_F_SetGeometryDirectly( feature_handle, ogr_geometry ) != OGRERR_NONE )
-            {
-                OE_WARN << LC << "OGR_F_SetGeometryDirectly failed!" << std::endl;
-            }
-
-            if ( OGR_L_CreateFeature( _layerHandle, feature_handle ) != OGRERR_NONE )
-            {
-                //TODO: handle error better
-                OE_WARN << LC << "OGR_L_CreateFeature failed!" << std::endl;
-                OGR_F_Destroy( feature_handle );
-                return false;
-            }
-
-            // clean up the feature
-            OGR_F_Destroy( feature_handle );
-        }
-        else
-        {
-            //TODO: handle error better
-            OE_WARN << LC << "OGR_F_Create failed." << std::endl;
-            return false;
-        }
-
-        dirty();
-
-        return true;
+        if ( isWritable() ) OE_INFO << LC << "not implemented" << std::endl;
+        return false;
     }
 
     virtual osgEarth::Symbology::Geometry::Type getGeometryType() const
@@ -478,17 +307,9 @@ protected:
     }
 
 
-
-
-
-
 private:
-    std::string _source;
     PGconn * _conn;
-
-    OGRLayerH _layerHandle;
-    unsigned int _layerIndex;
-    OGRSFDriverH _ogrDriverHandle;
+    
     const PostGISFeatureOptions _options;
     int _featureCount;
     bool _needsSync;

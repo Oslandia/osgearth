@@ -45,6 +45,9 @@ namespace osgEarth { namespace Drivers
         optional<std::string>& geometryColumn() { return _geometryColumn; }
         const optional<std::string>& geometryColumn() const { return _geometryColumn; }
 
+        optional<std::string>& featureIdColumn() { return _featureIdColumn; }
+        const optional<std::string>& featureIdColumn() const { return _featureIdColumn; }
+
         optional<std::string>& query() { return _query; }
         const optional<std::string>& query() const { return _query; }
 
@@ -74,6 +77,7 @@ namespace osgEarth { namespace Drivers
             conf.updateIfSet( "dbname", _dbname );
             conf.updateIfSet( "table", _table );
             conf.updateIfSet( "geometry_column", _geometryColumn );
+            conf.updateIfSet( "feature_id_column", _featureIdColumn );
             conf.updateIfSet( "query", _query );
             conf.updateIfSet( "user", _user );
             conf.updateIfSet( "password", _password );
@@ -94,6 +98,7 @@ namespace osgEarth { namespace Drivers
             conf.getIfSet( "dbname", _dbname );
             conf.getIfSet( "table", _table );
             conf.getIfSet( "geometry_column", _geometryColumn );
+            conf.getIfSet( "feature_id_column", _featureIdColumn );
             conf.getIfSet( "query", _query );
             conf.getIfSet( "user", _user );
             conf.getIfSet( "password", _password );
@@ -106,6 +111,7 @@ namespace osgEarth { namespace Drivers
         optional<std::string> _dbname;
         optional<std::string> _table;
         optional<std::string> _geometryColumn;
+        optional<std::string> _featureIdColumn;
         optional<std::string> _query;
         optional<std::string> _user;
         optional<std::string> _password;
