@@ -57,11 +57,11 @@ FeatureCursorPostGIS::FeatureCursorPostGIS(PGconn *         conn,
         if ( query.bounds().isSet() )
         {
             std::stringstream buf;
-            buf << " " << geom << " && SetSRID('BOX3D(" 
+            buf << " " << geom << " && ST_SetSRID('BOX3D(" 
                 << std::setprecision(17) // to be on the safe side
                 << query.bounds()->xMin() << " " << query.bounds()->yMin() << ","
                 << query.bounds()->xMax() << " " << query.bounds()->yMax()
-                << ")'::box3d,-1)";
+                << ")'::box3d, 0)";
             extend = buf.str();
         }
 
@@ -86,7 +86,7 @@ FeatureCursorPostGIS::FeatureCursorPostGIS(PGconn *         conn,
         else
         {
             std::stringstream buf;
-            buf << "SELECT * FROM " << from << extend;
+            buf << "SELECT * FROM " << from << (extend.empty() ? "": " WHERE " + extend);
             expr = buf.str();
         }
 
@@ -117,7 +117,7 @@ FeatureCursorPostGIS::FeatureCursorPostGIS(PGconn *         conn,
 
     if ( !res )
     {
-        OE_INFO << LC << "failed to execute request"<< std::endl;
+        OE_INFO << LC << "failed to execute request:"<< res.error() << std::endl;
         return;
     }
 
@@ -143,30 +143,46 @@ FeatureCursorPostGIS::FeatureCursorPostGIS(PGconn *         conn,
         {
             const char * wkb = PQgetvalue( res.get(), i, geomIdx );
             PostGisUtils::Lwgeom lwgeom( wkb, PostGisUtils::Lwgeom::WKB() );
+            assert( lwgeom.get() );
             Symbology::Geometry* geom = NULL;
             //! @todo actually create the geometry
-            //switch ( lwgeom.get()->type )
-            //{
-            //case POINTTYPE:
-            //case LINETYPE:
-            //case POLYGONTYPE:
-            //    Symbology::Polygon poly( numPoints );
+            switch ( lwgeom.get()->type )
+            {
+            case POLYGONTYPE:
+                {
+                LWPOLY * lwpoly = lwgeom_as_lwpoly(lwgeom.get());
+                assert( lwpoly );
+                const int numPoints = lwpoly->rings[0]->npoints;
+                Symbology::Polygon * poly = new Symbology::Polygon( numPoints );
+                for( int v = 0; v < numPoints ; v++ )
+                {
+                    const POINT3DZ p3D = getPoint3dz(lwpoly->rings[0], v );
+                    const osg::Vec3d p( p3D.x, p3D.y, p3D.z );
+                    if ( poly->size() == 0 || p != poly->back() ) // remove dupes
+                        poly->push_back( p );
+                }
+                poly->open();
+                geom = poly;
+                }
+                break;
+            case POINTTYPE:
+            case LINETYPE:
+            case TRIANGLETYPE:
+            case TINTYPE:
+            case POLYHEDRALSURFACETYPE:
+            case COLLECTIONTYPE:
+            case MULTIPOINTTYPE:
+            case MULTILINETYPE:
+            case MULTIPOLYGONTYPE:
+            case MULTISURFACETYPE:
 
-            //case TRIANGLETYPE:
-            //case TINTYPE:
-            //case POLYHEDRALSURFACETYPE:
-            //case COLLECTIONTYPE:
-            //case MULTIPOINTTYPE:
-            //case MULTILINETYPE:
-            //case MULTIPOLYGONTYPE:
-            //case MULTISURFACETYPE:
+            case MULTICURVETYPE:
+            case CIRCSTRINGTYPE:
+            case COMPOUNDTYPE:
+            case CURVEPOLYTYPE:
+                assert(false && "not implemented");
 
-            //case MULTICURVETYPE:
-            //case CIRCSTRINGTYPE:
-            //case COMPOUNDTYPE:
-            //case CURVEPOLYTYPE:
-
-            //}
+            }
 
 
             const int fid = atoi( PQgetvalue( res.get(), i, featureIdIdx));

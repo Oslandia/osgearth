@@ -24,7 +24,9 @@
 #include <osgEarthFeatures/Filter>
 #include <osgEarthSymbology/Query>
 #include <queue>
+extern "C"{
 #include <libpq-fe.h>
+}
 
 using namespace osgEarth;
 using namespace osgEarth::Features;

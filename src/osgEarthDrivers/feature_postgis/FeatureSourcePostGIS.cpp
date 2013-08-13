@@ -41,6 +41,7 @@ using namespace osgEarth::Features;
 using namespace osgEarth::Drivers;
 
 
+
 /**
  * A FeatureSource that reads features from an PostGIS driver.
  *
@@ -56,7 +57,7 @@ public:
       _needsSync(false),
       _writable(false)
     {
-        //nop
+        PostGisUtils::Lwgeom::initialize();
     }
 
     /** Destruct the object, cleaning up and PostGIS handles. */
@@ -88,10 +89,6 @@ public:
             profile = Profile::create( *_options.profile() );
         }
 
-        // attempt to open the dataset:
-        int openMode = _options.openWrite().isSet() && _options.openWrite().value() ? 1 : 0;
-
-
         const std::string conninfo = (_options.host().isSet() ? "" : " host='"+_options.host().value()+"'")
                                    + (_options.port().isSet() ? "" : " port='"+_options.port().value()+"'")
                                    + " dbname='"+_options.dbname().value()+"'"
@@ -107,12 +104,17 @@ public:
             {
                 OE_INFO << LC << "Building spatial index for " << _options.table().value() << std::endl;
                 const std::string query( "CREATE INDEX osgearth_index ON "+_options.table().value()
-                        +" USING GIST ("+_options.geometryColumn().value()+"); VACUUM ANALYZE" );
+                        +" USING GIST ("+_options.geometryColumn().value()+")" );
                 OE_DEBUG << LC << "SQL: " << query << std::endl;
                 PostGisUtils::QueryResult res( _conn, query );
                 if (!res)
                 {
-                    OE_INFO << LC << "failed to create spatial index: " << res.error() << std::endl;
+                    OE_WARN << LC << "failed to create spatial index: " << res.error() << std::endl;
+                }
+                PostGisUtils::QueryResult dummy( _conn, "VACUUM ANALYZE" );
+                if (!dummy)
+                {
+                    OE_WARN << LC << "failed to vacuum analyse" << std::endl;
                 }
             }
 
@@ -125,14 +127,16 @@ public:
             }
             else
             {
+                OE_INFO << LC << "extracting srs from " << _options.table().value() << std::endl;
                 // extract the SRS and Extent:                
                 PostGisUtils::QueryResult res( _conn,
                     "WITH a AS (SELECT ST_SRID("+_options.geometryColumn().value()
                     +") AS srid FROM "+_options.table().value()+" LIMIT 1)"
-                    +" SELECT auth_name,auth_srid FROM spatial_ref_sys  s, a WHERE s.srid=a.srid");
+                    +" SELECT auth_name,auth_srid,proj4text FROM spatial_ref_sys  s, a WHERE s.srid=a.srid");
                 if (res)
                 {
                     assert( 1 == PQntuples( res.get() ) );
+                    assert( 3 == PQnfields( res.get() ) );
                     const std::string authName( PQgetvalue( res.get() , 0, 0) ); 
                     const std::string authSrid( PQgetvalue( res.get() , 0, 1) ); 
                     const std::string proj4text( PQgetvalue( res.get() , 0, 2) ); 
@@ -146,22 +150,32 @@ public:
                         if (res2)
                         {
                             assert( 1 == PQntuples( res2.get() ) );
-                            PostGisUtils::Lwgeom geom( PQgetvalue( res2.get() , 0, 0), PostGisUtils::Lwgeom::WKT() );
-                            const GBOX * box = lwgeom_get_bbox(geom.get());
-                            GeoExtent extent( srs.get(), box->xmin, box->ymin, box->xmax, box->ymax );
+                            std::istringstream box( PQgetvalue( res2.get() , 0, 0) );
+                            std::string token;
+                            std::getline( box, token, '(');
+                            std::getline( box, token, ' ');
+                            const double xmin = atof( token.c_str() );
+                            std::getline( box, token, ',');
+                            const double ymin = atof( token.c_str() );
+                            std::getline( box, token, ' ');
+                            const double xmax = atof( token.c_str() );
+                            std::getline( box, token, ')');
+                            const double ymax = atof( token.c_str() );
+                            GeoExtent extent( srs.get(), xmin, ymin, xmax, ymax );
+                            OE_INFO << LC << "extracting extend from " << xmin << " " << ymin << " " << xmax << " " << ymax  << std::endl;
                             
                             // got enough info to make the profile!
                             result = new FeatureProfile( extent );
                         }
                         else
                         {
-                            OE_INFO << LC << "failed to get layer spacial extent: " << res2.error() << std::endl;
+                            OE_WARN << LC << "failed to get layer spacial extent: " << res2.error() << std::endl;
                         }
                     }
                 }
                 else
                 {
-                    OE_INFO << LC << "failed to create spatial index: " << res.error() << std::endl;
+                    OE_WARN << LC << "failed to create spatial index: " << res.error() << std::endl;
                 }
             }
 
@@ -175,7 +189,7 @@ public:
                 }
                 else
                 {
-                    OE_INFO << LC << "failed to get feature count: " << res.error() << std::endl;
+                    OE_WARN << LC << "failed to get feature count: " << res.error() << std::endl;
                 }
             }
 
@@ -205,7 +219,7 @@ public:
         }
         else
         {
-            OE_INFO << LC << "failed to open database with \"" << conninfo << "\"" << std::endl;
+            OE_WARN << LC << "failed to open database with \"" << conninfo << "\"" << std::endl;
             PQfinish( _conn );
             _conn = 0L;
         }
@@ -237,7 +251,7 @@ public:
 
     virtual bool deleteFeature(FeatureID fid)
     {
-        if ( isWritable() ) OE_INFO << LC << "not implemented" << std::endl;
+        if ( isWritable() ) OE_WARN << LC << "not implemented" << std::endl;
         return false;
     }
 
@@ -252,7 +266,7 @@ public:
 
         if ( !isBlacklisted(fid) )
         {
-            OE_INFO << LC << "not implemented" << std::endl;
+            OE_WARN << LC << "not implemented" << std::endl;
             assert(false && bool("not implemented"));
             //if (handle)
             //{
@@ -277,33 +291,13 @@ public:
 
     virtual bool insertFeature(Feature* feature)
     {
-        if ( isWritable() ) OE_INFO << LC << "not implemented" << std::endl;
+        if ( isWritable() ) OE_WARN << LC << "not implemented" << std::endl;
         return false;
     }
 
     virtual osgEarth::Symbology::Geometry::Type getGeometryType() const
     {
         return _geometryType;
-    }
-
-protected:
-
-    // parses an explicit WKT geometry string into a Geometry.
-    Symbology::Geometry* parseGeometry( const Config& geomConf )
-    {
-        return GeometryUtils::geometryFromWKT( geomConf.value() );
-    }
-
-    // read the WKT geometry from a URL, then parse into a Geometry.
-    Symbology::Geometry* parseGeometryUrl( const std::string& geomUrl, const osgDB::Options* dbOptions )
-    {
-        ReadResult r = URI(geomUrl).readString( dbOptions );
-        if ( r.succeeded() )
-        {
-            Config conf( "geometry", r.getString() );
-            return parseGeometry( conf );
-        }
-        return 0L;
     }
 
 
@@ -324,7 +318,11 @@ class PostGISFeatureSourceFactory : public FeatureSourceDriver
 public:
     PostGISFeatureSourceFactory()
     {
-        supportsExtension( "osgearth_feature_ogr", "PostGIS feature driver for osgEarth" );
+#ifdef NDEBUG
+        supportsExtension( "osgearth_feature_postgis", "PostGIS feature driver for osgEarth" );
+#else
+        supportsExtension( "osgearth_feature_postgisd", "PostGIS feature driver for osgEarth" );
+#endif
     }
 
     virtual const char* className()

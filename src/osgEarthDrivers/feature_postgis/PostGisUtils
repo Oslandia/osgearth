@@ -24,12 +24,26 @@
 #include <osgEarthSymbology/Geometry>
 #include <osgEarth/StringUtils>
 #include <osg/Notify>
+#include <cassert>
 #include <libpq-fe.h>
+extern "C" {
 #include <liblwgeom.h>
+}
+
+#define LC "[PostGIS Utils] "
 
 using namespace osgEarth;
 using namespace osgEarth::Features;
 using namespace osgEarth::Symbology;
+
+inline
+void errorreporter(const char* fmt, va_list ap)
+{
+    std::string format(LC);
+    format += fmt;
+    format += "\n";
+    fprintf(stderr, format.c_str(), ap );
+}
 
 struct OSGEARTHFEATURES_EXPORT PostGisUtils
 {
@@ -65,6 +79,11 @@ struct OSGEARTHFEATURES_EXPORT PostGisUtils
     //utility class for RAII of LWGEOM
     struct Lwgeom
     {
+        static void initialize()
+        {
+            lwgeom_set_handlers(NULL, NULL, NULL, errorreporter, NULL);
+        }
+
         struct WKT {};
         struct WKB {};
         Lwgeom( const char * wkt, WKT )
@@ -73,11 +92,12 @@ struct OSGEARTHFEATURES_EXPORT PostGisUtils
         Lwgeom( const char * wkb, WKB )
             : _geom( lwgeom_from_hexwkb(wkb, LW_PARSER_CHECK_NONE) )
         {}
+        operator bool() const { return _geom; }
         LWGEOM * get(){ return _geom; }
         LWGEOM * operator->(){ return _geom; }
         ~Lwgeom()
         {
-            lwgeom_free(_geom);
+            if (_geom) lwgeom_free(_geom);
         }
     private:
         LWGEOM * _geom;
@@ -95,6 +115,7 @@ struct OSGEARTHFEATURES_EXPORT PostGisUtils
     //static AttributeType getAttributeType( OGRFieldType type );    
 };
 
+#undef LC
 
 #endif // OSGEARTH_DRIVER_POSTGIS_FEATURE_UTILS
 
