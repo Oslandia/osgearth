@@ -20,8 +20,9 @@
 #include "PostGisUtils"
 
 inline
-void populate( const POINTARRAY * array, const int numPoints, Symbology::Geometry* target )
+void populate( const POINTARRAY * array, Symbology::Geometry* target )
 {
+    const int numPoints = array->npoints;
     for( int v = 0; v < numPoints; v++ )
     {
         const POINT3DZ p3D = getPoint3dz(array, v );
@@ -40,12 +41,12 @@ Symbology::Polygon * createGeometry( LWPOLY * lwpoly )
     if ( numRings > 0)
     {
         poly = new Symbology::Polygon( lwpoly->rings[0]->npoints );
-        populate( lwpoly->rings[0], lwpoly->rings[0]->npoints, poly.get() );
+        populate( lwpoly->rings[0], poly.get() );
     }
     for ( int r = 1; r < numRings; r++)
     {
         osg::ref_ptr<Symbology::Ring> hole = new Symbology::Ring( lwpoly->rings[r]->npoints );
-        populate( lwpoly->rings[r], lwpoly->rings[r]->npoints, hole.get() );
+        populate( lwpoly->rings[r], hole.get() );
         poly->getHoles().push_back( hole.get() );
     }
     return poly.release();
@@ -55,8 +56,8 @@ inline
 Symbology::Polygon * createGeometry( LWTRIANGLE * lwtriangle )
 {
     assert( lwtriangle );
-    osg::ref_ptr<Symbology::Polygon> poly = new Symbology::Polygon( 3 );
-    populate( lwtriangle->points, 3, poly.get() );
+    osg::ref_ptr<Symbology::Polygon> poly = new Symbology::Polygon( lwtriangle->points->npoints );
+    populate( lwtriangle->points, poly.get() );
     return poly.release();
 }
 
@@ -64,8 +65,8 @@ inline
 Symbology::LineString * createGeometry( LWLINE * lwline )
 {
     assert( lwline );
-    osg::ref_ptr<Symbology::LineString> line = new Symbology::LineString( 2 );
-    populate( lwline->points, 2, line.get() );
+    osg::ref_ptr<Symbology::LineString> line = new Symbology::LineString( lwline->points->npoints );
+    populate( lwline->points, line.get() );
     return line.release();
 }
 
@@ -73,8 +74,8 @@ inline
 Symbology::PointSet * createGeometry( LWPOINT * lwpoint )
 {
     assert( lwpoint );
-    osg::ref_ptr<Symbology::PointSet> point = new Symbology::PointSet(1);
-    populate( lwpoint->point, 1, point.get() );
+    osg::ref_ptr<Symbology::PointSet> point = new Symbology::PointSet( lwpoint->point->npoints );
+    populate( lwpoint->point, point.get() );
     return point.release();
 }
 
@@ -107,6 +108,7 @@ Symbology::PointSet * createGeometry( LWMPOINT * lwmulti )
     }
     return multi.release();
 }
+
 
 Symbology::Geometry* PostGisUtils::createGeometry( const Lwgeom & lwgeom )
 {
