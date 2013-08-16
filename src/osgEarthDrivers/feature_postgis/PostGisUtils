@@ -104,9 +104,6 @@ struct OSGEARTHFEATURES_EXPORT PostGisUtils
 
     };
 
-    static void populate( const POINTARRAY * array, const int numPoints, Symbology::Geometry* target );
-    static Symbology::Polygon * createGeometry( LWPOLY * lwpoly );
-    static Symbology::MultiGeometry * createGeometry( LWMPOLY * lwmpoly );
     static Symbology::Geometry* createGeometry( const Lwgeom & lwgeom );
 };
 
