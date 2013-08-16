@@ -29,6 +29,81 @@
 using namespace osgEarth;
 using namespace osgEarth::Features;
 
+void PostGisUtils::populate( const POINTARRAY * array, const int numPoints, Symbology::Geometry* target )
+{
+    for( int v = 0; v < numPoints; v++ )
+    {
+        const POINT3DZ p3D = getPoint3dz(array, v );
+        const osg::Vec3d p( p3D.x, p3D.y, p3D.z );
+        if ( target->size() == 0 || p != target->back() ) // remove dupes
+            target->push_back( p );
+    }
+}
+
+Symbology::Polygon * PostGisUtils::createGeometry( LWPOLY * lwpoly )
+{
+    assert( lwpoly );
+    const int numRings = lwpoly->nrings;
+    osg::ref_ptr<Symbology::Polygon> poly;
+    if ( numRings > 0)
+    {
+        poly = new Symbology::Polygon( lwpoly->rings[0]->npoints );
+        populate( lwpoly->rings[0], lwpoly->rings[0]->npoints, poly.get() );
+    }
+    for ( int r = 1; r < numRings; r++)
+    {
+        osg::ref_ptr<Symbology::Ring> hole = new Symbology::Ring( lwpoly->rings[r]->npoints );
+        populate( lwpoly->rings[r], lwpoly->rings[r]->npoints, hole.get() );
+        poly->getHoles().push_back( hole.get() );
+    }
+    return poly.release();
+}
+
+Symbology::MultiGeometry * PostGisUtils::createGeometry( LWMPOLY * lwmpoly )
+{
+    assert( lwmpoly );
+    osg::ref_ptr<Symbology::MultiGeometry> multi = new Symbology::MultiGeometry();
+    const int numPoly = lwmpoly->ngeoms;
+    for ( int g = 0; g<numPoly; g++ )
+    {
+        osg::ref_ptr<Symbology::Polygon> poly = createGeometry( lwmpoly->geoms[g] );
+        multi->getComponents().push_back( poly.release() );
+    }
+    return multi.release();
+}
+
+Symbology::Geometry* PostGisUtils::createGeometry( const Lwgeom & lwgeom )
+{
+    osg::ref_ptr<Symbology::Geometry> geom;
+    //! @todo actually create the geometry
+    switch ( lwgeom->type )
+    {
+    case POLYGONTYPE:
+        geom = createGeometry( lwgeom_as_lwpoly( lwgeom.get() ) );
+        break;
+    case MULTIPOLYGONTYPE:
+        geom = createGeometry( lwgeom_as_lwmpoly( lwgeom.get() ) );
+        break;
+    case POINTTYPE:
+    case LINETYPE:
+    case TRIANGLETYPE:
+    case TINTYPE:
+    case POLYHEDRALSURFACETYPE:
+    case COLLECTIONTYPE:
+    case MULTIPOINTTYPE:
+    case MULTILINETYPE:
+    case MULTISURFACETYPE:
+
+    case MULTICURVETYPE:
+    case CIRCSTRINGTYPE:
+    case COMPOUNDTYPE:
+    case CURVEPOLYTYPE:
+        assert(false && "not implemented");
+
+    }
+    return geom.release();
+}
+
 
 FeatureCursorPostGIS::FeatureCursorPostGIS(PGconn *         conn,
                                    const std::string &      table,
@@ -144,49 +219,10 @@ FeatureCursorPostGIS::FeatureCursorPostGIS(PGconn *         conn,
             const char * wkb = PQgetvalue( res.get(), i, geomIdx );
             PostGisUtils::Lwgeom lwgeom( wkb, PostGisUtils::Lwgeom::WKB() );
             assert( lwgeom.get() );
-            Symbology::Geometry* geom = NULL;
-            //! @todo actually create the geometry
-            switch ( lwgeom.get()->type )
-            {
-            case POLYGONTYPE:
-                {
-                LWPOLY * lwpoly = lwgeom_as_lwpoly(lwgeom.get());
-                assert( lwpoly );
-                const int numPoints = lwpoly->rings[0]->npoints;
-                Symbology::Polygon * poly = new Symbology::Polygon( numPoints );
-                for( int v = 0; v < numPoints ; v++ )
-                {
-                    const POINT3DZ p3D = getPoint3dz(lwpoly->rings[0], v );
-                    const osg::Vec3d p( p3D.x, p3D.y, p3D.z );
-                    if ( poly->size() == 0 || p != poly->back() ) // remove dupes
-                        poly->push_back( p );
-                }
-                poly->open();
-                geom = poly;
-                }
-                break;
-            case POINTTYPE:
-            case LINETYPE:
-            case TRIANGLETYPE:
-            case TINTYPE:
-            case POLYHEDRALSURFACETYPE:
-            case COLLECTIONTYPE:
-            case MULTIPOINTTYPE:
-            case MULTILINETYPE:
-            case MULTIPOLYGONTYPE:
-            case MULTISURFACETYPE:
-
-            case MULTICURVETYPE:
-            case CIRCSTRINGTYPE:
-            case COMPOUNDTYPE:
-            case CURVEPOLYTYPE:
-                assert(false && "not implemented");
-
-            }
-
-
+            osg::ref_ptr<Symbology::Geometry> geom = PostGisUtils::createGeometry( lwgeom );
+            assert( geom.get() );
             const int fid = atoi( PQgetvalue( res.get(), i, featureIdIdx));
-            osg::ref_ptr<Feature> f = new Feature( geom, profile->getSRS(), Style(), fid );
+            osg::ref_ptr<Feature> f = new Feature( geom.get(), profile->getSRS(), Style(), fid );
 
             const int numCol = PQnfields( res.get() );
             for ( int c=0; c<numCol; c++)
