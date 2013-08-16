@@ -565,7 +565,7 @@ BuildGeometryFilter::push( FeatureList& input, FilterContext& context )
         // apply the delocalization matrix for no-jitter
         result = delocalize( _geode.release() );
 
-#îf 0
+#if 0
 	std::cout << "writing to /tmp/tile.osg : " << osgDB::writeNodeFile( *result, "/tmp/tile.osg" ) << std::endl;
 #endif
     }
