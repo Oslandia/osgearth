@@ -339,5 +339,5 @@ public:
     }
 };
 
-REGISTER_OSGPLUGIN(osgearth_feature_ogr, PostGISFeatureSourceFactory)
+REGISTER_OSGPLUGIN(osgearth_feature_postgis, PostGISFeatureSourceFactory)
 
