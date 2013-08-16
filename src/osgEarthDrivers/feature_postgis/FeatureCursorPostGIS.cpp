@@ -154,14 +154,35 @@ FeatureCursorPostGIS::FeatureCursorPostGIS(PGconn *         conn,
             {
                 if ( geomIdx == c ) continue;
                 const std::string name( PQfname( res.get(), c ) );
+                const bool isNull = PQgetisnull(  res.get(), i, c );
                 const std::string value( PQgetvalue( res.get(), i, c ) );
-                f->set( name, value );
-                
                 //! @todo actually convert to int or double type
-                //switch ( PQftype( res.get(), c ) )
+                switch ( PQftype( res.get(), c ) )
+                {
+                case INT2OID:
+                case INT4OID:
+                case INT8OID:
+                case BOOLOID:
+                    if (isNull) f->setNull( name, ATTRTYPE_INT ); 
+                    else f->set( name, atoi( value.c_str() ) );
+                    break;
+                case FLOAT4OID:
+                case FLOAT8OID:
+                case NUMERICOID:
+                    if (isNull) f->setNull( name, ATTRTYPE_DOUBLE ); 
+                    else f->set( name, atof( value.c_str() ) );
+                    break;
+                case DATEOID:
+                case TIMEOID:
+                case TIMESTAMPOID:
+                case TIMESTAMPTZOID:
+                case BYTEAOID:
+                default:
+                    if (isNull) f->setNull( name, ATTRTYPE_STRING );
+                    else f->set( name, value );
+                    break;
+                }
             }
-
-
 
             if ( f.valid() && !source->isBlacklisted(f->getFID()) )
             {

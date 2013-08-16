@@ -25,7 +25,12 @@
 #include <osgEarth/StringUtils>
 #include <osg/Notify>
 #include <cassert>
+
+
 #include <libpq-fe.h>
+#include <postgres_fe.h>
+#include <catalog/pg_type.h>
+
 extern "C" {
 #include <liblwgeom.h>
 }
