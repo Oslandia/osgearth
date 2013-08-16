@@ -144,63 +144,45 @@ FeatureCursorPostGIS::FeatureCursorPostGIS(PGconn *         conn,
             const char * wkb = PQgetvalue( res.get(), i, geomIdx );
             PostGisUtils::Lwgeom lwgeom( wkb, PostGisUtils::Lwgeom::WKB() );
             assert( lwgeom.get() );
-            Symbology::Geometry* geom = NULL;
-            //! @todo actually create the geometry
-            switch ( lwgeom.get()->type )
-            {
-            case POLYGONTYPE:
-                {
-                LWPOLY * lwpoly = lwgeom_as_lwpoly(lwgeom.get());
-                assert( lwpoly );
-                const int numPoints = lwpoly->rings[0]->npoints;
-                Symbology::Polygon * poly = new Symbology::Polygon( numPoints );
-                for( int v = 0; v < numPoints ; v++ )
-                {
-                    const POINT3DZ p3D = getPoint3dz(lwpoly->rings[0], v );
-                    const osg::Vec3d p( p3D.x, p3D.y, p3D.z );
-                    if ( poly->size() == 0 || p != poly->back() ) // remove dupes
-                        poly->push_back( p );
-                }
-                poly->open();
-                geom = poly;
-                }
-                break;
-            case POINTTYPE:
-            case LINETYPE:
-            case TRIANGLETYPE:
-            case TINTYPE:
-            case POLYHEDRALSURFACETYPE:
-            case COLLECTIONTYPE:
-            case MULTIPOINTTYPE:
-            case MULTILINETYPE:
-            case MULTIPOLYGONTYPE:
-            case MULTISURFACETYPE:
-
-            case MULTICURVETYPE:
-            case CIRCSTRINGTYPE:
-            case COMPOUNDTYPE:
-            case CURVEPOLYTYPE:
-                assert(false && "not implemented");
-
-            }
-
-
+            osg::ref_ptr<Symbology::Geometry> geom = PostGisUtils::createGeometry( lwgeom );
+            assert( geom.get() );
             const int fid = atoi( PQgetvalue( res.get(), i, featureIdIdx));
-            osg::ref_ptr<Feature> f = new Feature( geom, profile->getSRS(), Style(), fid );
+            osg::ref_ptr<Feature> f = new Feature( geom.get(), profile->getSRS(), Style(), fid );
 
             const int numCol = PQnfields( res.get() );
             for ( int c=0; c<numCol; c++)
             {
                 if ( geomIdx == c ) continue;
                 const std::string name( PQfname( res.get(), c ) );
+                const bool isNull = PQgetisnull(  res.get(), i, c );
                 const std::string value( PQgetvalue( res.get(), i, c ) );
-                f->set( name, value );
-                
                 //! @todo actually convert to int or double type
-                //switch ( PQftype( res.get(), c ) )
+                switch ( PQftype( res.get(), c ) )
+                {
+                case INT2OID:
+                case INT4OID:
+                case INT8OID:
+                case BOOLOID:
+                    if (isNull) f->setNull( name, ATTRTYPE_INT ); 
+                    else f->set( name, atoi( value.c_str() ) );
+                    break;
+                case FLOAT4OID:
+                case FLOAT8OID:
+                case NUMERICOID:
+                    if (isNull) f->setNull( name, ATTRTYPE_DOUBLE ); 
+                    else f->set( name, atof( value.c_str() ) );
+                    break;
+                case DATEOID:
+                case TIMEOID:
+                case TIMESTAMPOID:
+                case TIMESTAMPTZOID:
+                case BYTEAOID:
+                default:
+                    if (isNull) f->setNull( name, ATTRTYPE_STRING );
+                    else f->set( name, value );
+                    break;
+                }
             }
-
-
 
             if ( f.valid() && !source->isBlacklisted(f->getFID()) )
             {

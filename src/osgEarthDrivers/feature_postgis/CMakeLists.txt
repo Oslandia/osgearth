@@ -1,6 +1,7 @@
 SET(TARGET_SRC
     FeatureSourcePostGIS.cpp
     FeatureCursorPostGIS.cpp
+    PostGisUtils.cpp
 )
 
 SET(TARGET_H

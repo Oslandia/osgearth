@@ -25,7 +25,12 @@
 #include <osgEarth/StringUtils>
 #include <osg/Notify>
 #include <cassert>
+
+
 #include <libpq-fe.h>
+#include <postgres_fe.h>
+#include <catalog/pg_type.h>
+
 extern "C" {
 #include <liblwgeom.h>
 }
@@ -93,8 +98,8 @@ struct OSGEARTHFEATURES_EXPORT PostGisUtils
             : _geom( lwgeom_from_hexwkb(wkb, LW_PARSER_CHECK_NONE) )
         {}
         operator bool() const { return _geom; }
-        LWGEOM * get(){ return _geom; }
-        LWGEOM * operator->(){ return _geom; }
+        const LWGEOM * get() const { return _geom; }
+        const LWGEOM * operator->() const { return _geom; }
         ~Lwgeom()
         {
             if (_geom) lwgeom_free(_geom);
@@ -104,15 +109,7 @@ struct OSGEARTHFEATURES_EXPORT PostGisUtils
 
     };
 
-    //static void populate( LWGEOM * geom, Symbology::Geometry* target, int numPoints );
-    //
-    //static Symbology::Polygon* createPolygon( LWGEOM * geom );
-    //   
-    //static Symbology::Geometry* createGeometry( LWGEOM * geom );
-
-    //static Feature* createFeature( LWGEOM * geom, const SpatialReference* srs );
-    //
-    //static AttributeType getAttributeType( OGRFieldType type );    
+    static Symbology::Geometry* createGeometry( const Lwgeom & lwgeom );
 };
 
 #undef LC
