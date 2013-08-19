@@ -105,35 +105,67 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
         featureSRS = context.extent()->getSRS();
         mapSRS     = context.getSession()->getMapInfo().getProfile()->getSRS();
     }
+
+    bool mergeGeometries = this->mergeGeometry().isSet();
+
+    osg::ref_ptr<osg::Geometry> osgGeom( new osg::Geometry );
+
+    // FIXME : slow on my machine
+    //	osgGeom->setUseVertexBufferObjects( _useVertexBufferObjects.value() );
     
+    // build the geometry:
+    osg::ref_ptr<osg::Vec3Array> vertices( new osg::Vec3Array );
+    osg::ref_ptr<osg::Vec3Array> normals( new osg::Vec3Array );
+    int elementsType = 0; // 0: byte, 1: short, 2: int
+    osg::ref_ptr<osg::DrawElements> elements( new osg::DrawElementsUByte( GL_TRIANGLES ) );
+    
+    if ( mergeGeometries ) {
+	osgGeom->setVertexArray( vertices.get() );
+	osgGeom->setNormalArray( normals.get() );
+	// FIXME : seems very slow when rendering ??
+	//osgGeom->setNormalBinding( osg::Geometry::BIND_PER_PRIMITIVE_SET );
+	osgGeom->setNormalBinding( osg::Geometry::BIND_PER_VERTEX );
+    }
+
+    osg::Vec4f primaryColor;
+	
     for( FeatureList::iterator f = features.begin(); f != features.end(); ++f )
     {
         Feature* input = f->get();
 
 	std::cout << "feature #" << input->getFID() << std::endl;
 
-	// create a geometry per feature
-	osg::Geometry* osgGeom = new osg::Geometry();
-	// FIXME : slow on my machine
-	//	osgGeom->setUseVertexBufferObjects( _useVertexBufferObjects.value() );
+	if ( ! mergeGeometries ) {
+	    osgGeom = new osg::Geometry;
+	    // FIXME : slow on my machine
+	    //	osgGeom->setUseVertexBufferObjects( _useVertexBufferObjects.value() );
     
-	if ( _featureNameExpr.isSet() )
-	{
-	    const std::string& name = input->eval( _featureNameExpr.mutable_value(), &context );
-	    osgGeom->setName( name );
+	    if ( _featureNameExpr.isSet() )
+	    {
+		const std::string& name = input->eval( _featureNameExpr.mutable_value(), &context );
+		osgGeom->setName( name );
+	    }
+	    else {
+		char idStr[80];
+		sprintf( idStr, "%lu", input->getFID() );
+		osgGeom->setName( idStr );
+	    }
+    
+	    vertices.release();
+	    vertices = new osg::Vec3Array;
+	    normals.release();
+	    normals = new osg::Vec3Array;
+
+	    elementsType = 0; // 0: byte, 1: short, 2: int
+	    elements.release();
+	    elements = new osg::DrawElementsUByte( GL_TRIANGLES );
+	
+	    osgGeom->setVertexArray( vertices.get() );
+	    osgGeom->setNormalArray( normals.get() );
+	    // FIXME : seems very slow when rendering ??
+	    //osgGeom->setNormalBinding( osg::Geometry::BIND_PER_PRIMITIVE_SET );
+	    osgGeom->setNormalBinding( osg::Geometry::BIND_PER_VERTEX );
 	}
-    
-	// build the geometry:
-	osg::Vec3Array* allPoints = new osg::Vec3Array;
-	osg::Vec3Array* normals = new osg::Vec3Array;
-	
-	osgGeom->setVertexArray( allPoints );
-	osgGeom->setNormalArray( normals );
-	// FIXME : seems very slow when rendering ??
-	//osgGeom->setNormalBinding( osg::Geometry::BIND_PER_PRIMITIVE_SET );
-	osgGeom->setNormalBinding( osg::Geometry::BIND_PER_VERTEX );
-	
-	osg::Vec4f primaryColor;
 	
 	const Style& myStyle = input->style().isSet() ? *input->style() : _style;
 	
@@ -242,26 +274,64 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
 		// merge myGeom with osgGeom
 		osg::Vec3Array* mVertices = (osg::Vec3Array*)( myGeom->getVertexArray() );
 		osg::Vec3Array* mNormals = (osg::Vec3Array*)( myGeom->getNormalArray() );
+
+		int newSize = vertices->size() + mVertices->size();
+		if ( newSize > 65536 && elementsType < 2 ) {
+		    osg::DrawElementsUInt* newElements = new osg::DrawElementsUInt( GL_TRIANGLES, elements->getNumIndices() );
+		    for ( int i = 0; i < elements->getNumIndices(); ++i ) {
+			newElements->setElement( i, elements->index( i ) );
+		    }
+		    elements = newElements;
+		    elementsType = 2;
+		}
+		else if ( newSize > 256 && elementsType < 1 ) {
+		    osg::DrawElementsUShort* newElements = new osg::DrawElementsUShort( GL_TRIANGLES, elements->getNumIndices() );
+		    for ( int i = 0; i < elements->getNumIndices(); ++i ) {
+			newElements->setElement( i, elements->index( i ) );
+		    }
+		    elements = newElements;
+		    elementsType = 1;
+		}
 		
 		for ( int i = 0; i < myGeom->getNumPrimitiveSets(); i++ ) {
-		    osg::PrimitiveSet* pset = myGeom->getPrimitiveSet( i );
-		    pset->offsetIndices( allPoints->size() );
-		    osgGeom->addPrimitiveSet( pset );
+		    // result for tessellator : osg::DrawElements
+		    osg::DrawElements* pset = (osg::DrawElements*)myGeom->getPrimitiveSet( i );
+
+		    for ( int j = 0; j < pset->getNumIndices(); ++j ) {
+			elements->addElement( pset->index( j ) + vertices->size() );
+		    }
 		}
 		
 		for ( int i = 0; i < mVertices->size(); ++i ) {
-		    allPoints->push_back( (*mVertices)[i] );
+		    vertices->push_back( (*mVertices)[i] );
 		}
 		for ( int i = 0; i < mNormals->size(); ++i ) {
 		    normals->push_back( (*mNormals)[i] );
 		}
+		
 	    }
 	} // while (parts.hasMore() )
-	
-	// record the geometry's primitive set(s) in the index:
-	if ( context.featureIndex() )
-	    context.featureIndex()->tagPrimitiveSets( osgGeom, input );
-	
+
+	if ( ! mergeGeometries ) {
+	    osgGeom->addPrimitiveSet( elements.release() );
+
+	    // record the geometry's primitive set(s) in the index:
+	    if ( context.featureIndex() )
+		context.featureIndex()->tagPrimitiveSets( osgGeom.get(), input );
+
+	    if (vertices->getVertexBufferObject())
+		vertices->getVertexBufferObject()->setUsage(GL_STATIC_DRAW_ARB);
+
+	    // assign the primary color:
+	    osg::Vec4Array* colors = new osg::Vec4Array( 1 );
+	    (*colors)[0] = primaryColor;            
+	    osgGeom->setColorArray( colors );
+	    osgGeom->setColorBinding( osg::Geometry::BIND_OVERALL );
+
+	    _geode->addDrawable( osgGeom.release() );
+
+	}
+
 #ifdef NOT_YET_PORTED
 	else
 	{
@@ -283,12 +353,7 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
 		osgGeom->setInitialBound( osg::BoundingBox(center-osg::Vec3(.5,.5,.5), center+osg::Vec3(.5,.5,.5)) );
 	    }
 	}
-#endif
-	
-	if (allPoints->getVertexBufferObject())
-	    allPoints->getVertexBufferObject()->setUsage(GL_STATIC_DRAW_ARB);
-	
-#ifdef NOT_YET_PORTED
+
 	// subdivide the mesh if necessary to conform to an ECEF globe:
 	if ( makeECEF && renderType != Geometry::TYPE_POINTSET )
 	{
@@ -309,31 +374,7 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
 		    ms.run( *osgGeom, threshold, *_geoInterp );
 	    }
 	}
-#endif
-	
 
-
-	// assign the primary color:
-	//#if USE_SINGLE_COLOR            
-#if 1
-	osg::Vec4Array* colors = new osg::Vec4Array( 1 );
-	(*colors)[0] = primaryColor;            
-	osgGeom->setColorArray( colors );
-	osgGeom->setColorBinding( osg::Geometry::BIND_OVERALL );
-#else
-	
-	osg::Vec4Array* colors = new osg::Vec4Array( osgGeom->getVertexArray()->getNumElements() ); //allPoints->size() );
-	for(unsigned c=0; c<colors->size(); ++c)
-	    (*colors)[c] = primaryColor;            
-	osgGeom->setColorArray( colors );
-	osgGeom->setColorBinding( osg::Geometry::BIND_PER_VERTEX );
-#endif
-	
-        
-	
-	_geode->addDrawable( osgGeom );
-
-#ifdef NOT_YET_PORTED
 	// build secondary geometry, if necessary (polygon outlines)
 	if ( renderType == Geometry::TYPE_POLYGON && lineSymbol )
 	{
@@ -397,10 +438,25 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
 		context.featureIndex()->tagPrimitiveSets( outline, input );
 	}
 	
-#endif
+#endif // NOT_YET_PORTED
     
     } // for each feature
 
+
+    if ( mergeGeometries ) {
+	osgGeom->addPrimitiveSet( elements.release() );
+	
+	if (vertices->getVertexBufferObject())
+	    vertices->getVertexBufferObject()->setUsage(GL_STATIC_DRAW_ARB);
+	
+	// assign the primary color:
+	osg::Vec4Array* colors = new osg::Vec4Array( 1 );
+	(*colors)[0] = primaryColor;            
+	osgGeom->setColorArray( colors );
+	osgGeom->setColorBinding( osg::Geometry::BIND_OVERALL );
+	
+	_geode->addDrawable( osgGeom.release() );
+    }
 
     return true;
 }
@@ -457,7 +513,7 @@ BuildGeometryFilter::buildPolygon(Geometry*               ring,
     Polygon* poly = dynamic_cast<Polygon*>(ring);
     if ( poly )
     {
-        int offset = ring->size();
+       int offset = ring->size();
 
         for( RingCollection::const_iterator h = poly->getHoles().begin(); h != poly->getHoles().end(); ++h )
         {
@@ -473,17 +529,14 @@ BuildGeometryFilter::buildPolygon(Geometry*               ring,
     }
     osgGeom->setVertexArray( allPoints );
 
-#if 0
-    // still buggy ...
     if ( tessellate )
     {
         CustomTessellator tess;
-        tess.setTessellationType( osgUtil::Tessellator::TESS_TYPE_DRAWABLE );
+        tess.setTessellationType( osgUtil::Tessellator::TESS_TYPE_POLYGONS );
         tess.setWindingType( osgUtil::Tessellator::TESS_WINDING_POSITIVE );
         //tess.setBoundaryOnly( true );
         tess.retessellatePolygons( *osgGeom );
     }
-#endif
 
     //// Normal computation.
     //// Not completely correct, but better than no normals at all. TODO: update this
@@ -509,6 +562,7 @@ BuildGeometryFilter::buildPolygon(Geometry*               ring,
     for ( int i = 0; i < allPoints->size(); ++i ) {
 	normals->push_back( normal );
     }
+
 }
 
 osg::Node*
@@ -533,9 +587,10 @@ BuildGeometryFilter::push( FeatureList& input, FilterContext& context )
         opt.optimize( _geode.get(),
 		      osgUtil::Optimizer::VERTEX_PRETRANSFORM |
 		      osgUtil::Optimizer::INDEX_MESH |
-		      osgUtil::Optimizer::VERTEX_POSTTRANSFORM |
-		      osgUtil::Optimizer::MERGE_GEODES |
-		      osgUtil::Optimizer::MERGE_GEOMETRY );
+		      osgUtil::Optimizer::VERTEX_POSTTRANSFORM
+		      //		      osgUtil::Optimizer::MERGE_GEODES |
+		      //		      osgUtil::Optimizer::MERGE_GEOMETRY );
+		      );
 	std::cout << "end of optimizer" << std::endl;
 #endif
 #endif
