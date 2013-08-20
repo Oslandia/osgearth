@@ -133,9 +133,8 @@ public:
                     "WITH a AS (SELECT ST_SRID("+_options.geometryColumn().value()
                     +") AS srid FROM "+_options.table().value()+" LIMIT 1)"
                     +" SELECT auth_name,auth_srid,proj4text FROM spatial_ref_sys  s, a WHERE s.srid=a.srid");
-                if (res)
+                if (res && PQntuples( res.get() ) == 1)
                 {
-                    assert( 1 == PQntuples( res.get() ) );
                     assert( 3 == PQnfields( res.get() ) );
                     const std::string authName( PQgetvalue( res.get() , 0, 0) ); 
                     const std::string authSrid( PQgetvalue( res.get() , 0, 1) ); 
@@ -175,7 +174,7 @@ public:
                 }
                 else
                 {
-                    OE_WARN << LC << "failed to create spatial index: " << res.error() << std::endl;
+                    OE_WARN << LC << "failed to get SRID: " << (res ? "invalid SRID" : res.error()) << std::endl;
                 }
             }
 
@@ -318,11 +317,8 @@ class PostGISFeatureSourceFactory : public FeatureSourceDriver
 public:
     PostGISFeatureSourceFactory()
     {
-#ifdef NDEBUG
         supportsExtension( "osgearth_feature_postgis", "PostGIS feature driver for osgEarth" );
-#else
         supportsExtension( "osgearth_feature_postgisd", "PostGIS feature driver for osgEarth" );
-#endif
     }
 
     virtual const char* className()
