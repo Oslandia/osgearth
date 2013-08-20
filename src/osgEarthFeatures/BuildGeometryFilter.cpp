@@ -106,7 +106,7 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
         mapSRS     = context.getSession()->getMapInfo().getProfile()->getSRS();
     }
 
-    bool mergeGeometries = this->mergeGeometry().isSet();
+    bool mergeGeometries = mergeGeometry().isSet() && mergeGeometry().value();
 
     osg::ref_ptr<osg::Geometry> osgGeom( new osg::Geometry );
 
