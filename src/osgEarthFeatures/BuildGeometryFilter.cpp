@@ -110,8 +110,7 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
 
     osg::ref_ptr<osg::Geometry> osgGeom( new osg::Geometry );
 
-    // FIXME : slow on my machine
-    //	osgGeom->setUseVertexBufferObjects( _useVertexBufferObjects.value() );
+    osgGeom->setUseVertexBufferObjects( _useVertexBufferObjects.value() );
     
     // build the geometry:
     osg::ref_ptr<osg::Vec3Array> vertices( new osg::Vec3Array );
@@ -137,8 +136,7 @@ BuildGeometryFilter::process( FeatureList& features, const FilterContext& contex
 
 	if ( ! mergeGeometries ) {
 	    osgGeom = new osg::Geometry;
-	    // FIXME : slow on my machine
-	    //	osgGeom->setUseVertexBufferObjects( _useVertexBufferObjects.value() );
+	    osgGeom->setUseVertexBufferObjects( _useVertexBufferObjects.value() );
     
 	    if ( _featureNameExpr.isSet() )
 	    {
